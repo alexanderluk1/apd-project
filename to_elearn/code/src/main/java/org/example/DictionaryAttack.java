@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 
 public class DictionaryAttack {
 
+    // Adds
     static LinkedList<CrackTask> taskQueue = new LinkedList<>();
     static HashMap<String, User> users = new HashMap<>();
     static ArrayList<String> cracked = new ArrayList<>();
@@ -25,20 +26,40 @@ public class DictionaryAttack {
             System.exit(1);
         }
 
+        /**
+         * This part sets the path to the data inputs
+         * args[0] -> path to datasets/large/in.txt (which holds username + hashed pw)
+         * args[1] -> path to datasets/large/dictionary.txt (list of plaintext common
+         * passwords)
+         * args[2] -> path to final output which matches hashed pw to plaintext
+         */
         String usersPath = args[0];
         String dictionaryPath = args[1];
         String passwordsPath = args[2];
 
-//        String datasetPath = "/Users/kasung/Projects/se301/project/code/se301/src/datasets/large/";
-//
-//        String dictionaryPath = datasetPath + "dictionary.txt";
-//        String usersPath = datasetPath + "in.txt";
-//        String passwordsPath = datasetPath + "out.txt";
+        // String datasetPath =
+        // "/Users/kasung/Projects/se301/project/code/se301/src/datasets/large/";
+        //
+        // String dictionaryPath = datasetPath + "dictionary.txt";
+        // String usersPath = datasetPath + "in.txt";
+        // String passwordsPath = datasetPath + "out.txt";
 
         long start = System.currentTimeMillis();
+
+        // Loads all plaintext password into a list of strings
         List<String> allPasswords = loadDictionary(dictionaryPath);
+
+        // Loads file, Creates user object & adds to a Map<String, User>
         loadUsers(usersPath);
 
+        /**
+         * For each user in map
+         * For every password
+         * - Create a new CrackTask object (username, password)
+         * - Each cracktask has a method execute()
+         * - Adds this cracktask to the taskQueue
+         * 
+         */
         for (User user : users.values()) {
             for (String password : allPasswords) {
                 taskQueue.add(new CrackTask(user.username, password));
@@ -48,10 +69,13 @@ public class DictionaryAttack {
         long totalTasks = taskQueue.size();
         System.out.println("Starting attack with " + totalTasks + " total tasks...");
 
-
+        /**
+         * While the taskQueue is not empty, run
+         */
         while (!taskQueue.isEmpty()) {
             CrackTask task = taskQueue.poll();
-            if (task != null) task.execute();
+            if (task != null)
+                task.execute();
 
             if (taskQueue.size() % 1000 == 0) {
 
@@ -62,7 +86,7 @@ public class DictionaryAttack {
                 String timestamp = LocalDateTime.now().format(formatter);
 
                 System.out.printf("\r[%s] %.2f%% complete | Passwords Found: %d | Tasks Remaining: %d",
-                        timestamp,progressPercent, passwordsFound, remainingTasks);
+                        timestamp, progressPercent, passwordsFound, remainingTasks);
             }
         }
         System.out.println("");
@@ -75,9 +99,9 @@ public class DictionaryAttack {
         }
     }
 
-
     /**
      * Writes the successfully cracked user credentials to a CSV file.
+     * 
      * @param filePath The path of the CSV file to write to.
      */
     static void writeCrackedPasswordsToCSV(String filePath) {
@@ -145,7 +169,8 @@ public class DictionaryAttack {
 
         public void execute() {
             User user = users.get(username);
-            if (user == null || user.isFound) return;
+            if (user == null || user.isFound)
+                return;
 
             try {
                 String hash = sha256(password);
@@ -177,4 +202,3 @@ public class DictionaryAttack {
         }
     }
 }
-
