@@ -10,7 +10,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.nio.charset.StandardCharsets;
 
 public class DictionaryAttack {
 
@@ -74,15 +73,14 @@ public class DictionaryAttack {
                 int found = passwordsFound.get();
                 int computed = hashesComputed.get();
                 int processed = processedUsers.get();
-                int totalUsers = users.size();
                 long elapsed = System.currentTimeMillis() - start;
 
-                double progress = totalUsers == 0 ? 0.0 : ((double) processed / totalUsers) * 100;
+                double progress = totalTasks == 0 ? 0.0 : ((double) processed / totalTasks) * 100;
                 String timestamp = LocalDateTime.now().format(formatter);
 
                 System.out.printf(
                         "\r[%s] %.2f%% complete | Tasks Processed: %d/%d | Passwords Found: %d | Hashes Computed: %d | Elapsed: %d ms",
-                        timestamp, progress, processed, totalUsers, found, computed, elapsed);
+                        timestamp, progress, processed, totalTasks, found, computed, elapsed);
 
                 try {
                     Thread.sleep(1000); // update every second
@@ -115,13 +113,12 @@ public class DictionaryAttack {
         }
         executor.shutdown();
 
-        int totalUsersFinal = users.size();
-        double finalProgress = totalUsersFinal == 0 ? 100.0 : ((double) processedUsers.get() / totalUsersFinal) * 100;
+        double finalProgress = totalTasks == 0 ? 100.0 : ((double) processedUsers.get() / totalTasks) * 100;
         long totalMillis = System.currentTimeMillis() - start;
         String finalTimestamp = LocalDateTime.now().format(formatter);
         System.out.printf(
                 "\r[%s] %.2f%% complete | Tasks Processed: %d/%d | Passwords Found: %d | Hashes Computed: %d | Elapsed: %d ms%n",
-                finalTimestamp, finalProgress, processedUsers.get(), totalUsersFinal, passwordsFound.get(),
+                finalTimestamp, finalProgress, processedUsers.get(), totalTasks, passwordsFound.get(),
                 hashesComputed.get(), totalMillis);
 
         System.out.println("");
