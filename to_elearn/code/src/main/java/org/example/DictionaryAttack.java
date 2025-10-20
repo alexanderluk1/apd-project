@@ -11,10 +11,10 @@ import java.nio.charset.StandardCharsets;
 public class DictionaryAttack {
 
     // Adds
-    static LinkedList<CrackTask> taskQueue = new LinkedList<>();
-    static HashMap<String, User> users = new HashMap<>();
-    static ArrayList<String> cracked = new ArrayList<>();
-    static HashMap<String, String> reverseLookupCache = new HashMap<>();
+    static List<CrackTask> taskQueue = new LinkedList<>();
+    static Map<String, User> users = new HashMap<>();
+    static List<String> cracked = new ArrayList<>();
+    static Map<String, String> reverseLookupCache = new HashMap<>();
     static int passwordsFound = 0;
     static int hashesComputed = 0;
 
@@ -70,7 +70,7 @@ public class DictionaryAttack {
         System.out.println("Starting attack with " + totalTasks + " total tasks...");
 
         /**
-         * While the taskQueue is not empty, run
+         * While the taskQueue is not empty, run execute
          */
         while (!taskQueue.isEmpty()) {
             CrackTask task = taskQueue.poll();
@@ -126,6 +126,7 @@ public class DictionaryAttack {
         }
     }
 
+    // Probably can't optimise this
     static List<String> loadDictionary(String filePath) throws IOException {
         List<String> allWords = new ArrayList<>();
         try {
