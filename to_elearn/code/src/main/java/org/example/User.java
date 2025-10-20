@@ -21,6 +21,7 @@ public class User {
 
       public void setFoundPassword(String foundPassword) {
             this.foundPassword = foundPassword;
+            this.isFound = true;
       }
 
       public String getUsername() {

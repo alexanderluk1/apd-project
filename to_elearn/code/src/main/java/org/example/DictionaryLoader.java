@@ -12,8 +12,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class DictionaryLoader implements Loader<Map<String, String>> {
 
-      public static final AtomicInteger hashesComputed = new AtomicInteger(0);
+      public final AtomicInteger hashesComputed;
       private static final Map<String, String> reverseLookupCache = new HashMap<>();
+
+      public DictionaryLoader(AtomicInteger hashesComputed) {
+            this.hashesComputed = hashesComputed;
+      }
 
       @Override
       public Map<String, String> load(String filePath) throws IOException {
@@ -33,9 +37,5 @@ public class DictionaryLoader implements Loader<Map<String, String>> {
                   e.printStackTrace();
             }
             return hashToPassword;
-      }
-
-      public static int getHashesComputed() {
-            return hashesComputed.get();
       }
 }

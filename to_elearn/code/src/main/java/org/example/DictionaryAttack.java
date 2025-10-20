@@ -16,12 +16,12 @@ public class DictionaryAttack {
 
     // Adds
     static Map<String, User> users;
-    static List<String> cracked = new ArrayList<>();
     static Map<String, String> hashToPassword;
-    static Map<String, String> reverseLookupCache = new HashMap<>();
     static AtomicInteger passwordsFound = new AtomicInteger(0);
+    static AtomicInteger hashesComputed = new AtomicInteger(0);
+    static AtomicInteger processedUsers = new AtomicInteger(0);
 
-    static Loader<Map<String, String>> dictionaryLoader = new DictionaryLoader();
+    static Loader<Map<String, String>> dictionaryLoader = new DictionaryLoader(hashesComputed);
     static Loader<Map<String, User>> userLoader = new UserLoader();
 
     public static void main(String[] args) throws Exception {
@@ -52,6 +52,10 @@ public class DictionaryAttack {
 
         long start = System.currentTimeMillis();
 
+        passwordsFound.set(0);
+        hashesComputed.set(0);
+        processedUsers.set(0);
+
         // Precompute the hashes of every single line in the dictionary
         hashToPassword = dictionaryLoader.load(dictionaryPath);
 
@@ -61,18 +65,69 @@ public class DictionaryAttack {
         ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
         List<Future<?>> futures = new ArrayList<>();
 
+        long totalTasks = users.size();
+        System.out.println("\nStarting attack with " + totalTasks + " total tasks...");
+
+        final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        Thread reporter = new Thread(() -> {
+            while (!Thread.currentThread().isInterrupted()) {
+                int found = passwordsFound.get();
+                int computed = hashesComputed.get();
+                int processed = processedUsers.get();
+                int totalUsers = users.size();
+                long elapsed = System.currentTimeMillis() - start;
+
+                double progress = totalUsers == 0 ? 0.0 : ((double) processed / totalUsers) * 100;
+                String timestamp = LocalDateTime.now().format(formatter);
+
+                System.out.printf(
+                        "\r[%s] %.2f%% complete | Tasks Processed: %d/%d | Passwords Found: %d | Hashes Computed: %d | Elapsed: %d ms",
+                        timestamp, progress, processed, totalUsers, found, computed, elapsed);
+
+                try {
+                    Thread.sleep(1000); // update every second
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        });
+        reporter.start();
+
         for (User user : users.values()) {
-            CrackTask task = new CrackTask(user, hashToPassword, passwordsFound);
+            CrackTask task = new CrackTask(user, hashToPassword, passwordsFound, processedUsers);
             futures.add(executor.submit(task));
         }
 
-        long totalTasks = users.size();
-        System.out.println("Starting attack with " + totalTasks + " total tasks...");
+        // Block until all tasks are done
+        for (Future<?> future : futures) {
+            try {
+                future.get();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        reporter.interrupt();
+        try {
+            reporter.join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        executor.shutdown();
+
+        int totalUsersFinal = users.size();
+        double finalProgress = totalUsersFinal == 0 ? 100.0 : ((double) processedUsers.get() / totalUsersFinal) * 100;
+        long totalMillis = System.currentTimeMillis() - start;
+        String finalTimestamp = LocalDateTime.now().format(formatter);
+        System.out.printf(
+                "\r[%s] %.2f%% complete | Tasks Processed: %d/%d | Passwords Found: %d | Hashes Computed: %d | Elapsed: %d ms%n",
+                finalTimestamp, finalProgress, processedUsers.get(), totalUsersFinal, passwordsFound.get(),
+                hashesComputed.get(), totalMillis);
 
         System.out.println("");
         System.out.println("Total passwords found: " + passwordsFound.get());
-        System.out.println("Total hashes computed: " + DictionaryLoader.getHashesComputed());
-        System.out.println("Total time spent (milliseconds): " + (System.currentTimeMillis() - start));
+        System.out.println("Total hashes computed: " + hashesComputed.get());
+        System.out.println("Total time spent (milliseconds): " + totalMillis);
 
         if (passwordsFound.get() > 0) {
             ReportWriter.write(users, passwordsPath);
