@@ -22,6 +22,7 @@ public class DictionaryLoader implements Loader<Map<String, String>> {
       @Override
       public Map<String, String> load(String filePath) throws IOException {
             Map<String, String> hashToPassword = new HashMap<>();
+            // c1ed2cccec2ce4484c12507a13dedef31e4bf46cd9dd74506780487a062f74dd -> Secret3865689
 
             try (BufferedReader reader = Files.newBufferedReader(Paths.get(filePath), StandardCharsets.UTF_8)) {
                   String line;

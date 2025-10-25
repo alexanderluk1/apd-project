@@ -10,9 +10,19 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class DictionaryAttack {
 
+    // Further improvements:
+    /**
+     * 1. Look at replacing concurrent RW
+     * 2. See where can use streams
+     * 3. Futures: see how to check done concurrently (mok example) - ExecutorCompletionService
+     * 4. Make the freq of the Reporter thread same as old version
+     */
+
     // Adds
     static Map<String, User> users;
     static Map<String, String> hashToPassword;
+
+    // Replace with concurrent Read/write
     static AtomicInteger passwordsFound = new AtomicInteger(0);
     static AtomicInteger hashesComputed = new AtomicInteger(0);
     static AtomicInteger processedUsers = new AtomicInteger(0);
@@ -53,7 +63,7 @@ public class DictionaryAttack {
         processedUsers.set(0);
 
         // Precompute the hashes of every single line in the dictionary
-        hashToPassword = dictionaryLoader.load(dictionaryPath);
+        hashToPassword = dictionaryLoader.load(dictionaryPath); // O(m)
 
         // Loads file, Creates user object & adds to a Map<String, User>
         users = userLoader.load(usersPath);
@@ -61,7 +71,7 @@ public class DictionaryAttack {
         ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
         List<Future<?>> futures = new ArrayList<>();
 
-        long totalTasks = users.size();
+        long totalTasks = users.size(); 
         System.out.println("\nStarting attack with " + totalTasks + " total tasks...");
 
         final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -88,12 +98,15 @@ public class DictionaryAttack {
         });
         reporter.start();
 
+        // O(n)
         for (User user : users.values()) {
             CrackTask task = new CrackTask(user, hashToPassword, passwordsFound, processedUsers);
             futures.add(executor.submit(task));
         }
 
-        // Block until all tasks are done
+        
+
+        // Block until all tasks are done (Improve this part)
         for (Future<?> future : futures) {
             try {
                 future.get();
