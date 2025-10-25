@@ -12,10 +12,15 @@ public class DictionaryAttack {
 
     // Further improvements:
     /**
-     * 1. Look at replacing concurrent RW
-     * 2. See where can use streams
-     * 3. Futures: see how to check done concurrently (mok example) - ExecutorCompletionService
-     * 4. Make the freq of the Reporter thread same as old version
+     * 1. Look at replacing concurrent RW (Junyi)
+     * 2. See where can use streams (KIV?)
+     * 3. Futures: see how to check done concurrently (mok example) - ExecutorCompletionService (Nashwyn)
+     * 4. Make the freq of the Reporter thread same as old version (Nashwyn)
+     * 5. See how to load concurrently (Junyi)
+     * 6. Test in VM (Alexander)
+     * 7. Look at JVM Tuning (KIV)
+     * 8. BONUS: Look at JDK25 (KIV)
+     * 9. MainFlow and Execute Task flow (Alexander)
      */
 
     // Adds
