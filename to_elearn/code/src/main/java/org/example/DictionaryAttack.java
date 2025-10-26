@@ -111,7 +111,7 @@ public class DictionaryAttack {
 
         ArrayBlockingQueue<CrackTask> pool = new ArrayBlockingQueue<>(users.size());
 
-        // O(n)
+        // Reusable Object Pool
         for (User user : users.values()) {
             CrackTask task = pool.poll();
             if (task == null) {
@@ -122,13 +122,6 @@ public class DictionaryAttack {
 
             CompletableFuture<Void> future = CompletableFuture.runAsync(task, executor);
             futures.add(future);
-
-            // CrackTask task = new CrackTask(user, hashToPassword, passwordsFound,
-            // processedUsers);
-
-            // // Submit task to executor & returns a CompletableFuture<Void>
-            // CompletableFuture<Void> future = CompletableFuture.runAsync(task, executor);
-            // futures.add(future);
         }
 
         // Waits for all to complete regardless of order
