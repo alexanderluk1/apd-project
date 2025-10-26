@@ -16,7 +16,7 @@ public class DictionaryAttack {
      * 1. Look at replacing concurrent RW (Junyi)
      * 2. See where can use streams (KIV?)
      * 3. Futures: see how to check done concurrently (mok example) -
-     * ExecutorCompletionService (Nashwyn)
+     * ExecutorCompletionService (Nashwyn) (Alex done it but see if can improve)
      * 4. Make the freq of the Reporter thread same as old version (Nashwyn)
      * 5. See how to load concurrently (Junyi)
      * 6. Test in VM (Alexander)
@@ -108,10 +108,13 @@ public class DictionaryAttack {
         // O(n)
         for (User user : users.values()) {
             CrackTask task = new CrackTask(user, hashToPassword, passwordsFound, processedUsers);
+
+            // Submit task to executor & returns a CompletableFuture<Void>
             CompletableFuture<Void> future = CompletableFuture.runAsync(task, executor);
             futures.add(future);
         }
 
+        // Waits for all to complete regardless of order
         CompletableFuture<Void> all = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
         all.join();
 
