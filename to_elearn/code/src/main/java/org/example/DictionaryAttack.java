@@ -3,10 +3,10 @@ package org.example;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class DictionaryAttack {
@@ -23,6 +23,10 @@ public class DictionaryAttack {
      * 7. Look at JVM Tuning (KIV)
      * 8. BONUS: Look at JDK25 (KIV)
      * 9. MainFlow and Execute Task flow (Alexander)
+     * 
+     * Additional Stuff Added:
+     * - Object Pooling for CrackTask
+     * - Used StringBuilder instaed of String during printing of Reporter
      */
 
     // Adds
@@ -105,13 +109,26 @@ public class DictionaryAttack {
         });
         reporter.start();
 
+        ArrayBlockingQueue<CrackTask> pool = new ArrayBlockingQueue<>(users.size());
+
         // O(n)
         for (User user : users.values()) {
-            CrackTask task = new CrackTask(user, hashToPassword, passwordsFound, processedUsers);
+            CrackTask task = pool.poll();
+            if (task == null) {
+                task = new CrackTask();
+            }
+            task.setup(user, hashToPassword, passwordsFound, processedUsers);
+            pool.offer(task);
 
-            // Submit task to executor & returns a CompletableFuture<Void>
             CompletableFuture<Void> future = CompletableFuture.runAsync(task, executor);
             futures.add(future);
+
+            // CrackTask task = new CrackTask(user, hashToPassword, passwordsFound,
+            // processedUsers);
+
+            // // Submit task to executor & returns a CompletableFuture<Void>
+            // CompletableFuture<Void> future = CompletableFuture.runAsync(task, executor);
+            // futures.add(future);
         }
 
         // Waits for all to complete regardless of order
@@ -129,10 +146,20 @@ public class DictionaryAttack {
         double finalProgress = totalTasks == 0 ? 100.0 : ((double) processedUsers.get() / totalTasks) * 100;
         long totalMillis = System.currentTimeMillis() - start;
         String finalTimestamp = LocalDateTime.now().format(formatter);
-        System.out.printf(
-                "\r[%s] %.2f%% complete | Tasks Processed: %d/%d | Passwords Found: %d | Hashes Computed: %d | Elapsed: %d ms%n",
-                finalTimestamp, finalProgress, processedUsers.get(), totalTasks, passwordsFound.get(),
-                hashesComputed.get(), totalMillis);
+
+        StringBuilder logBuilder = new StringBuilder(200); // replace with sb to reduce object allocation
+        logBuilder.append("\r[")
+                .append(finalTimestamp)
+                .append("] ")
+                .append(String.format("%.2f", finalProgress))
+                .append("% complete | Tasks Processed: ")
+                .append(processedUsers.get()).append("/")
+                .append(totalTasks)
+                .append(" | Passwords Found: ").append(passwordsFound.get())
+                .append(" | Hashes Computed: ").append(hashesComputed.get())
+                .append(" | Elapsed: ").append(totalMillis).append(" ms\n");
+
+        System.out.print(logBuilder.toString());
 
         System.out.println("");
         System.out.println("Total passwords found: " + passwordsFound.get());

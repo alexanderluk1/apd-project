@@ -4,12 +4,12 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class CrackTask implements Runnable {
-      private final User user;
-      private final Map<String, String> hashToPassword;
-      private final AtomicInteger passwordsFound;
-      private final AtomicInteger processedUsers;
+      private User user;
+      private Map<String, String> hashToPassword;
+      private AtomicInteger passwordsFound;
+      private AtomicInteger processedUsers;
 
-      public CrackTask(User user, Map<String, String> hashToPassword, AtomicInteger passwordsFound,
+      public void setup(User user, Map<String, String> hashToPassword, AtomicInteger passwordsFound,
                   AtomicInteger processedUsers) {
             this.user = user;
             this.hashToPassword = hashToPassword;
