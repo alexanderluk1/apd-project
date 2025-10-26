@@ -3,6 +3,7 @@ package org.example;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -14,7 +15,8 @@ public class DictionaryAttack {
     /**
      * 1. Look at replacing concurrent RW (Junyi)
      * 2. See where can use streams (KIV?)
-     * 3. Futures: see how to check done concurrently (mok example) - ExecutorCompletionService (Nashwyn)
+     * 3. Futures: see how to check done concurrently (mok example) -
+     * ExecutorCompletionService (Nashwyn)
      * 4. Make the freq of the Reporter thread same as old version (Nashwyn)
      * 5. See how to load concurrently (Junyi)
      * 6. Test in VM (Alexander)
@@ -74,9 +76,9 @@ public class DictionaryAttack {
         users = userLoader.load(usersPath);
 
         ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
-        List<Future<?>> futures = new ArrayList<>();
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
 
-        long totalTasks = users.size(); 
+        long totalTasks = users.size();
         System.out.println("\nStarting attack with " + totalTasks + " total tasks...");
 
         final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -106,19 +108,12 @@ public class DictionaryAttack {
         // O(n)
         for (User user : users.values()) {
             CrackTask task = new CrackTask(user, hashToPassword, passwordsFound, processedUsers);
-            futures.add(executor.submit(task));
+            CompletableFuture<Void> future = CompletableFuture.runAsync(task, executor);
+            futures.add(future);
         }
 
-        
-
-        // Block until all tasks are done (Improve this part)
-        for (Future<?> future : futures) {
-            try {
-                future.get();
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
+        CompletableFuture<Void> all = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+        all.join();
 
         reporter.interrupt();
         try {
