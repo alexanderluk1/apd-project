@@ -28,7 +28,8 @@ public class CrackTask implements Runnable {
                         }
                   }
             } finally {
-                  processedUsers.incrementAndGet();
+                  int processed = processedUsers.incrementAndGet();
+                  DictionaryAttack.notifyReporter(processed);
             }
       }
 

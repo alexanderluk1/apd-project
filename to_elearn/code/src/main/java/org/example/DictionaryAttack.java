@@ -24,6 +24,11 @@ public class DictionaryAttack {
     static Loader<Map<String, String>> dictionaryLoader = new DictionaryLoader(hashesComputed);
     static Loader<Map<String, User>> userLoader = new UserLoader();
 
+    // Reporter configuration
+    private static final int REPORT_BATCH_SIZE = 1000;
+    private static final Object REPORT_MONITOR = new Object();
+    private static volatile long nextReportThreshold = REPORT_BATCH_SIZE;
+
     // Fields accessed by helper methods / reporter
     private static long start;
     private static long totalMillis;
@@ -34,19 +39,10 @@ public class DictionaryAttack {
     // Further improvements:
     /**
      * 1. Look at replacing concurrent RW (Junyi)
-     * 2. See where can use streams (KIV?)
-     * 3. Futures: see how to check done concurrently (mok example) -
-     * ExecutorCompletionService (Nashwyn) (Alex done it but see if can improve)
      * 4. Make the freq of the Reporter thread same as old version (Nashwyn)
      * 5. See how to load concurrently (Junyi)
-     * 6. Test in VM (Alexander)
      * 7. Look at JVM Tuning (KIV)
      * 8. BONUS: Look at JDK25 (KIV)
-     * 9. MainFlow and Execute Task flow (Alexander)
-     * 
-     * Additional Stuff Added:
-     * - Object Pooling for CrackTask
-     * - Used StringBuilder instaed of String during printing of Reporter
      */
 
     public static void main(String[] args) throws Exception {
@@ -81,6 +77,7 @@ public class DictionaryAttack {
         passwordsFound.set(0);
         hashesComputed.set(0);
         processedUsers.set(0);
+        nextReportThreshold = REPORT_BATCH_SIZE;
 
         // Precompute dictionary hashes
         hashToPassword = dictionaryLoader.load(dictionaryPath);
@@ -159,6 +156,9 @@ public class DictionaryAttack {
         reporter = new Thread(() -> {
             StringBuilder sb = new StringBuilder(256);
             while (!Thread.currentThread().isInterrupted()) {
+                if (!waitForNextBatch()) {
+                    break;
+                }
                 int found = passwordsFound.get();
                 int computed = hashesComputed.get();
                 int processed = processedUsers.get();
@@ -178,10 +178,8 @@ public class DictionaryAttack {
 
                 System.out.print(sb.toString());
 
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
+                if (processed >= totalTasks) {
+                    break;
                 }
             }
         }, "StatusReporter");
@@ -192,6 +190,9 @@ public class DictionaryAttack {
     private static void stopReporterAndJoin() {
         if (reporter != null) {
             reporter.interrupt();
+            synchronized (REPORT_MONITOR) {
+                REPORT_MONITOR.notifyAll();
+            }
             try {
                 reporter.join();
             } catch (InterruptedException e) {
@@ -241,6 +242,34 @@ public class DictionaryAttack {
     private static void writeOutputIfNeeded(String passwordsPath) {
         if (passwordsFound.get() > 0) {
             ReportWriter.write(users, passwordsPath);
+        }
+    }
+
+    static void notifyReporter(int processed) {
+        synchronized (REPORT_MONITOR) {
+            long target = Math.min(nextReportThreshold, totalTasks);
+            if (processed >= target) {
+                REPORT_MONITOR.notifyAll();
+            }
+        }
+    }
+
+    private static boolean waitForNextBatch() {
+        synchronized (REPORT_MONITOR) {
+            while (!Thread.currentThread().isInterrupted()) {
+                long target = Math.min(nextReportThreshold, totalTasks);
+                if (processedUsers.get() >= target) {
+                    nextReportThreshold += REPORT_BATCH_SIZE;
+                    return true;
+                }
+                try {
+                    REPORT_MONITOR.wait();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+            return false;
         }
     }
 }
