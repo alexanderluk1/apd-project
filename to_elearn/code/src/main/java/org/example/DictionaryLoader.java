@@ -27,6 +27,7 @@ public class DictionaryLoader implements Loader<Map<String, String>> {
             Set<String> uniqueLines = new HashSet<>(Files.readAllLines(Paths.get(filePath)));
 
             Map<String, String> hashToPassword = new HashMap<>();
+            // c1ed2cccec2ce4484c12507a13dedef31e4bf46cd9dd74506780487a062f74dd -> Secret3865689
 
             for (String line : uniqueLines) {
                 try {

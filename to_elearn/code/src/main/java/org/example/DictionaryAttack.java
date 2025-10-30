@@ -1,60 +1,85 @@
 package org.example;
 
-import java.sql.SQLOutput;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class DictionaryAttack {
 
-    // Adds
+    // Shared state
     static Map<String, User> users;
     static Map<String, String> hashToPassword;
+
+    // Counters
     static AtomicInteger passwordsFound = new AtomicInteger(0);
     static AtomicInteger hashesComputed = new AtomicInteger(0);
     static AtomicInteger processedUsers = new AtomicInteger(0);
 
+    // Loaders
     static Loader<Map<String, String>> dictionaryLoader = new DictionaryLoader(hashesComputed);
     static Loader<Map<String, User>> userLoader = new UserLoader();
 
+    // Reporter configuration
+    private static final int REPORT_BATCH_SIZE = 1000;
+    private static final Object REPORT_MONITOR = new Object();
+    private static volatile long nextReportThreshold = REPORT_BATCH_SIZE;
+
+    // Fields accessed by helper methods / reporter
+    private static long start;
+    private static long totalMillis;
+    private static long totalTasks;
+    private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static Thread reporter;
+
+    // Further improvements:
+    /**
+     * 1. Look at replacing concurrent RW (Junyi)
+     * 4. Make the freq of the Reporter thread same as old version (Nashwyn)
+     * 5. See how to load concurrently (Junyi)
+     * 7. Look at JVM Tuning (KIV)
+     * 8. BONUS: Look at JDK25 (KIV)
+     */
+
     public static void main(String[] args) throws Exception {
+        validateArgs(args);
 
-        // Check if both file paths are provided as command-line arguments
-        if (args.length < 2) {
-            System.out.println("Usage: java -jar <jar-file-name>.jar <input_file> <dictionary_file> <output_file>");
-            System.exit(1);
-        }
-
-        /**
-         * This part sets the path to the data inputs
-         * args[0] -> path to datasets/large/in.txt (which holds username + hashed pw)
-         * args[1] -> path to datasets/large/dictionary.txt (list of plaintext common
-         * passwords)
-         * args[2] -> path to final output which matches hashed pw to plaintext
-         */
         String usersPath = args[0];
         String dictionaryPath = args[1];
         String passwordsPath = args[2];
 
-        // String datasetPath =
-        // "/Users/kasung/Projects/se301/project/code/se301/src/datasets/large/";
-        //
-        // String dictionaryPath = datasetPath + "dictionary.txt";
-        // String usersPath = datasetPath + "in.txt";
-        // String passwordsPath = datasetPath + "out.txt";
+        // Warmup for JIT compiler
+        runWarmup(usersPath, dictionaryPath);
 
-        long start = System.currentTimeMillis();
+        // Init the data from dataset
+        initializeState(usersPath, dictionaryPath);
+
+        ExecutorService executor = createExecutor();
+        List<CompletableFuture<Void>> futures = submitTasks(executor);
+
+        startReporter();
+
+        waitForCompletion(futures, executor);
+
+        stopReporterAndJoin();
+
+        finalizeTimingAndReport(passwordsPath);
+    }
+
+    // --- Initialization and warm-up ---
+    private static void initializeState(String usersPath, String dictionaryPath) throws Exception {
+        start = System.currentTimeMillis();
 
         passwordsFound.set(0);
         hashesComputed.set(0);
         processedUsers.set(0);
+        nextReportThreshold = REPORT_BATCH_SIZE;
 
-        // Precompute the hashes of every single line in the dictionary
+        // Precompute dictionary hashes
         CompletableFuture<Map<String, String>> dictionaryFuture = CompletableFuture.supplyAsync(() -> {
             try {
                 return dictionaryLoader.load(dictionaryPath);
@@ -64,7 +89,7 @@ public class DictionaryAttack {
             }
         });
 
-        // Loads file, Creates user object & adds to a Map<String, User>
+        // Load users
         CompletableFuture<Map<String, User>> usersFuture = CompletableFuture.supplyAsync(() -> {
             try {
                 return userLoader.load(usersPath);
@@ -79,76 +104,191 @@ public class DictionaryAttack {
 
         long crackStart = System.currentTimeMillis();
 
-        ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
-        List<Future<?>> futures = new ArrayList<>();
+        totalTasks = users.size();
 
-        long totalTasks = users.size();
         System.out.println("\nStarting attack with " + totalTasks + " total tasks...");
+    }
 
-        final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        Thread reporter = new Thread(() -> {
+    private static void runWarmup(String usersPath, String dictionaryPath) throws Exception {
+        System.out.println("Warming up JIT...");
+        // perform two warmup passes
+        for (int i = 0; i < 2; i++) {
+            Map<String, User> warmupUsers = userLoader.load(usersPath);
+            Map<String, String> warmupDict = dictionaryLoader.load(dictionaryPath);
+
+            ExecutorService warmupExec = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+            List<CompletableFuture<Void>> warmupFutures = new ArrayList<>();
+
+            for (User user : warmupUsers.values()) {
+                CrackTask task = new CrackTask();
+                task.setup(user, warmupDict, new AtomicInteger(0), new AtomicInteger(0));
+                warmupFutures.add(CompletableFuture.runAsync(task, warmupExec));
+            }
+
+            CompletableFuture.allOf(warmupFutures.toArray(new CompletableFuture[0])).join();
+            warmupExec.shutdown();
+            try {
+                warmupExec.awaitTermination(1, java.util.concurrent.TimeUnit.MINUTES);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        System.out.println("Warm-up complete. Starting benchmark...\n");
+    }
+
+    // --- Executor & Task submission ---
+    private static ExecutorService createExecutor() {
+        return Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    }
+
+    private static List<CompletableFuture<Void>> submitTasks(ExecutorService executor) {
+        List<CompletableFuture<Void>> futures = new ArrayList<>(Math.max(16, (int) totalTasks));
+
+        // Optional simple pool — we keep allocation behavior normal but show intent
+        ArrayBlockingQueue<CrackTask> pool = new ArrayBlockingQueue<>((int) Math.max(1, totalTasks));
+
+        for (User user : users.values()) {
+            CrackTask task = pool.poll();
+            if (task == null) {
+                task = new CrackTask();
+            }
+            // Prepare task with the current state (immutable per submission)
+            task.setup(user, hashToPassword, passwordsFound, processedUsers);
+            // Do NOT re-offer the task into pool here — avoid reusing a live task
+
+            CompletableFuture<Void> future = CompletableFuture.runAsync(task, executor);
+            futures.add(future);
+        }
+
+        return futures;
+    }
+
+    private static void waitForCompletion(List<CompletableFuture<Void>> futures, ExecutorService executor) {
+        CompletableFuture<Void> all = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+        all.join();
+
+        executor.shutdown();
+    }
+
+    // --- Reporter lifecycle ---
+    private static void startReporter() {
+        reporter = new Thread(() -> {
+            StringBuilder sb = new StringBuilder(256);
             while (!Thread.currentThread().isInterrupted()) {
+                if (!waitForNextBatch()) {
+                    break;
+                }
                 int found = passwordsFound.get();
                 int computed = hashesComputed.get();
                 int processed = processedUsers.get();
                 long elapsed = System.currentTimeMillis() - start;
 
                 double progress = totalTasks == 0 ? 0.0 : ((double) processed / totalTasks) * 100;
-                String timestamp = LocalDateTime.now().format(formatter);
+                String timestamp = LocalDateTime.now().format(FORMATTER);
 
-                System.out.printf(
-                        "\r[%s] %.2f%% complete | Tasks Processed: %d/%d | Passwords Found: %d | Hashes Computed: %d | Elapsed: %d ms",
-                        timestamp, progress, processed, totalTasks, found, computed, elapsed);
+                sb.setLength(0);
+                sb.append("\r[").append(timestamp).append("] ")
+                        .append(String.format("%.2f", progress))
+                        .append("% complete | Tasks Processed: ")
+                        .append(processed).append("/").append(totalTasks)
+                        .append(" | Passwords Found: ").append(found)
+                        .append(" | Hashes Computed: ").append(computed)
+                        .append(" | Elapsed: ").append(elapsed).append(" ms");
 
-                try {
-                    Thread.sleep(1000); // update every second
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
+                System.out.print(sb.toString());
+
+                if (processed >= totalTasks) {
+                    break;
                 }
             }
-        });
+        }, "StatusReporter");
+        reporter.setDaemon(true);
         reporter.start();
+    }
 
-        for (User user : users.values()) {
-            CrackTask task = new CrackTask(user, hashToPassword, passwordsFound, processedUsers);
-            futures.add(executor.submit(task));
-        }
-
-        // Block until all tasks are done
-        for (Future<?> future : futures) {
+    private static void stopReporterAndJoin() {
+        if (reporter != null) {
+            reporter.interrupt();
+            synchronized (REPORT_MONITOR) {
+                REPORT_MONITOR.notifyAll();
+            }
             try {
-                future.get();
-            } catch (Exception e) {
-                e.printStackTrace();
+                reporter.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
         }
+    }
 
-        reporter.interrupt();
-        try {
-            reporter.join();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        executor.shutdown();
-
+    // --- Final reporting and output ---
+    private static void finalizeTimingAndReport(String passwordsPath) {
+        totalMillis = System.currentTimeMillis() - start;
         double finalProgress = totalTasks == 0 ? 100.0 : ((double) processedUsers.get() / totalTasks) * 100;
-        long totalMillis = System.currentTimeMillis() - start;
-        long crackMilis = System.currentTimeMillis() - crackStart;
-        String finalTimestamp = LocalDateTime.now().format(formatter);
-        System.out.printf(
-                "\r[%s] %.2f%% complete | Tasks Processed: %d/%d | Passwords Found: %d | Hashes Computed: %d | Elapsed: %d ms%n",
-                finalTimestamp, finalProgress, processedUsers.get(), totalTasks, passwordsFound.get(),
-                hashesComputed.get(), totalMillis);
-        System.out.println("time taken to crack task: " + crackMilis);
+        String finalTimestamp = LocalDateTime.now().format(FORMATTER);
 
-        System.out.println("");
+        StringBuilder logBuilder = new StringBuilder(200);
+        logBuilder.append("\r[")
+                .append(finalTimestamp)
+                .append("] ")
+                .append(String.format("%.2f", finalProgress))
+                .append("% complete | Tasks Processed: ")
+                .append(processedUsers.get()).append("/")
+                .append(totalTasks)
+                .append(" | Passwords Found: ").append(passwordsFound.get())
+                .append(" | Hashes Computed: ").append(hashesComputed.get())
+                .append(" | Elapsed: ").append(totalMillis).append(" ms\n");
+
+        System.out.print(logBuilder.toString());
+
+        printFinalStats();
+        writeOutputIfNeeded(passwordsPath);
+    }
+
+    private static void validateArgs(String[] args) {
+        if (args.length < 3) {
+            System.out.println("Usage: java -jar <jar-file-name>.jar <input_file> <dictionary_file> <output_file>");
+            System.exit(1);
+        }
+    }
+
+    private static void printFinalStats() {
+        System.out.println();
         System.out.println("Total passwords found: " + passwordsFound.get());
         System.out.println("Total hashes computed: " + hashesComputed.get());
         System.out.println("Total time spent (milliseconds): " + totalMillis);
+    }
 
+    private static void writeOutputIfNeeded(String passwordsPath) {
         if (passwordsFound.get() > 0) {
             ReportWriter.write(users, passwordsPath);
         }
     }
 
+    static void notifyReporter(int processed) {
+        synchronized (REPORT_MONITOR) {
+            long target = Math.min(nextReportThreshold, totalTasks);
+            if (processed >= target) {
+                REPORT_MONITOR.notifyAll();
+            }
+        }
+    }
+
+    private static boolean waitForNextBatch() {
+        synchronized (REPORT_MONITOR) {
+            while (!Thread.currentThread().isInterrupted()) {
+                long target = Math.min(nextReportThreshold, totalTasks);
+                if (processedUsers.get() >= target) {
+                    nextReportThreshold += REPORT_BATCH_SIZE;
+                    return true;
+                }
+                try {
+                    REPORT_MONITOR.wait();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+            return false;
+        }
+    }
 }
