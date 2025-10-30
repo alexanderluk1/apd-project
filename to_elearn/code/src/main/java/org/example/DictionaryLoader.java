@@ -6,9 +6,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.NoSuchAlgorithmException;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class DictionaryLoader implements Loader<Map<String, String>> {
 
@@ -21,21 +23,23 @@ public class DictionaryLoader implements Loader<Map<String, String>> {
 
       @Override
       public Map<String, String> load(String filePath) throws IOException {
+
+            Set<String> uniqueLines = new HashSet<>(Files.readAllLines(Paths.get(filePath)));
+
             Map<String, String> hashToPassword = new HashMap<>();
 
-            try (BufferedReader reader = Files.newBufferedReader(Paths.get(filePath), StandardCharsets.UTF_8)) {
-                  String line;
-                  while ((line = reader.readLine()) != null) {
-                        String hash = Utils.sha256(line);
-                        hashToPassword.put(hash, line);
-                        hashesComputed.incrementAndGet();
-                        reverseLookupCache.put(line, hash);
-                  }
-            } catch (IOException e) {
-                  e.printStackTrace();
-            } catch (NoSuchAlgorithmException e) {
-                  e.printStackTrace();
+            for (String line : uniqueLines) {
+                try {
+                    String hash = Utils.sha256(line);
+                    hashToPassword.put(hash, line);
+                    hashesComputed.incrementAndGet();
+                    reverseLookupCache.put(line, hash);
+                } catch (NoSuchAlgorithmException e){
+                    e.printStackTrace();
+                }
             }
+
             return hashToPassword;
+
       }
 }

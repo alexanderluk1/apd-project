@@ -8,6 +8,7 @@ import java.util.*;
 public class UserLoader implements Loader<Map<String, User>> {
       @Override
       public Map<String, User> load(String fileName) throws IOException {
+            long start = System.currentTimeMillis();
 
             List<String> lines = Files.readAllLines(Paths.get(fileName));
             Map<String, User> users = new HashMap<>();
@@ -20,7 +21,8 @@ public class UserLoader implements Loader<Map<String, User>> {
                         users.put(username, new User(username, hashedPassword));
                   }
             }
-
+            long totalMillis = System.currentTimeMillis() - start;
+            System.out.println("time to load users: " + totalMillis);
             return users;
       }
 }

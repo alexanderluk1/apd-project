@@ -1,8 +1,10 @@
 package org.example;
 
+import java.sql.SQLOutput;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -53,10 +55,29 @@ public class DictionaryAttack {
         processedUsers.set(0);
 
         // Precompute the hashes of every single line in the dictionary
-        hashToPassword = dictionaryLoader.load(dictionaryPath);
+        CompletableFuture<Map<String, String>> dictionaryFuture = CompletableFuture.supplyAsync(() -> {
+            try {
+                return dictionaryLoader.load(dictionaryPath);
+
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to load dictionary: " + e.getMessage(), e);
+            }
+        });
 
         // Loads file, Creates user object & adds to a Map<String, User>
-        users = userLoader.load(usersPath);
+        CompletableFuture<Map<String, User>> usersFuture = CompletableFuture.supplyAsync(() -> {
+            try {
+                return userLoader.load(usersPath);
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to load users: " + e.getMessage(), e);
+            }
+        });
+
+
+        hashToPassword = dictionaryFuture.join();
+        users = usersFuture.join();
+
+        long crackStart = System.currentTimeMillis();
 
         ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
         List<Future<?>> futures = new ArrayList<>();
@@ -112,11 +133,13 @@ public class DictionaryAttack {
 
         double finalProgress = totalTasks == 0 ? 100.0 : ((double) processedUsers.get() / totalTasks) * 100;
         long totalMillis = System.currentTimeMillis() - start;
+        long crackMilis = System.currentTimeMillis() - crackStart;
         String finalTimestamp = LocalDateTime.now().format(formatter);
         System.out.printf(
                 "\r[%s] %.2f%% complete | Tasks Processed: %d/%d | Passwords Found: %d | Hashes Computed: %d | Elapsed: %d ms%n",
                 finalTimestamp, finalProgress, processedUsers.get(), totalTasks, passwordsFound.get(),
                 hashesComputed.get(), totalMillis);
+        System.out.println("time taken to crack task: " + crackMilis);
 
         System.out.println("");
         System.out.println("Total passwords found: " + passwordsFound.get());
