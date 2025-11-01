@@ -98,7 +98,6 @@ public class DictionaryAttack {
             }
         });
 
-
         hashToPassword = dictionaryFuture.join();
         users = usersFuture.join();
 
@@ -154,7 +153,6 @@ public class DictionaryAttack {
             }
             // Prepare task with the current state (immutable per submission)
             task.setup(user, hashToPassword, passwordsFound, processedUsers);
-            // Do NOT re-offer the task into pool here — avoid reusing a live task
 
             CompletableFuture<Void> future = CompletableFuture.runAsync(task, executor);
             futures.add(future);
