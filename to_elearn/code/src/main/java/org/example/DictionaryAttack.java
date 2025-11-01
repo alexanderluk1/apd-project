@@ -55,13 +55,13 @@ public class DictionaryAttack {
         // Warmup for JIT compiler
         runWarmup(usersPath, dictionaryPath);
 
+        startReporter();
+
         // Init the data from dataset
         initializeState(usersPath, dictionaryPath);
 
         ExecutorService executor = createExecutor();
         List<CompletableFuture<Void>> futures = submitTasks(executor);
-
-        startReporter();
 
         waitForCompletion(futures, executor);
 
